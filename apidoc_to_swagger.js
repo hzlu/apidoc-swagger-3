@@ -5,9 +5,10 @@ const GenerateSchema = require('generate-schema')
 
 
 var swagger = {
-    swagger: "3.0",
+    swagger: "2.0",
     info: {},
-    paths: {}
+    paths: {},
+    definitions: {},
 };
 
 function toSwagger(apidocJson, projectJson) {
@@ -79,6 +80,16 @@ function mapHeaderItem(i) {
         default: i.defaultValue
     }
 }
+function mapPathItem(i) {
+    return {
+        type: 'string',
+        in: 'path',
+        name: i.field,
+        description: removeTags(i.description),
+        required: !i.optional,
+        default: i.defaultValue
+    }
+}
 function mapQueryItem(i) {
     return {
         type: 'string',
@@ -110,11 +121,14 @@ const defaultBodyParameter = {
  */
 
 /**
- * 
- * @param {ApidocParameter[]} apiDocParams 
- * @param {*} parameter 
+ * @param {ApidocParameter[]} apiDocParams
+ * @param {*} parameter
  */
 function transferApidocParamsToSwaggerBody(apiDocParams, parameterInBody) {
+    // const isshow = apiDocParams[0].description === '推送策略';
+    // if (isshow) {
+    //     console.log('apiDocParams', apiDocParams, 'parameterInBody', parameterInBody);
+    // }
 
     let mountPlaces = {
         '': parameterInBody['schema']
@@ -170,19 +184,21 @@ function transferApidocParamsToSwaggerBody(apiDocParams, parameterInBody) {
             }
         }
     })
+    // if (isshow) {
+    //     console.log('mountPlaces', mountPlaces);
+    // }
 
     return parameterInBody
 }
-function generateProps(verb) {
-    // console.log('verb', verb);
 
+function generateProps(verb) {
     const pathItemObject = {}
     const parameters = generateParameters(verb)
     const responses = generateResponses(verb)
     pathItemObject[verb.type] = {
         tags: [verb.group],
-        summary: removeTags(verb.name),
-        description: removeTags(verb.title),
+        summary: removeTags(verb.name || verb.title),
+        description: removeTags(verb.description || verb.title),
         consumes: [
             "application/json"
         ],
@@ -198,6 +214,7 @@ function generateProps(verb) {
 }
 
 function generateParameters(verb) {
+    const mixedPath = []
     const mixedQuery = []
     const mixedBody = []
     const header = verb && verb.header && verb.header.fields.Header || []
@@ -207,19 +224,23 @@ function generateParameters(verb) {
         const Parameter = verb.parameter.fields.Parameter || []
         const _query = verb.parameter.fields.Query || []
         const _body = verb.parameter.fields.Body || []
+        mixedPath.push(...Parameter)
         mixedQuery.push(..._query)
         mixedBody.push(..._body)
-        if (verb.type === 'get') {
-            mixedQuery.push(...Parameter)
-        } else {
-            mixedBody.push(...Parameter)
-        }
+        // if (verb.type === 'get') {
+        //     mixedQuery.push(...Parameter)
+        // } else {
+        //     mixedBody.push(...Parameter)
+        // }
     }
 
     const parameters = []
-    parameters.push(...mixedQuery.map(mapQueryItem))
     parameters.push(...header.map(mapHeaderItem))
-    parameters.push(generateRequestBody(verb, mixedBody))
+    parameters.push(...mixedPath.map(mapPathItem))
+    parameters.push(...mixedQuery.map(mapQueryItem))
+    if (mixedBody.length) {
+        parameters.push(generateRequestBody(verb, mixedBody))
+    }
     // console.log('parameters', parameters);
 
     return parameters
@@ -227,6 +248,7 @@ function generateParameters(verb) {
 function generateRequestBody(verb, mixedBody) {
     const bodyParameter = {
         in: 'body',
+        name: 'body',
         schema: {
             properties: {},
             type: 'object',
@@ -252,6 +274,7 @@ function generateResponses(verb) {
     const success = verb.success
     const responses = {
         200: {
+            description: 'successful operation',
             schema: {
                 properties: {},
                 type: 'object',
@@ -263,6 +286,7 @@ function generateResponses(verb) {
         for (const example of success.examples) {
             const { code, json } = safeParseJson(example.content)
             const schema = GenerateSchema.json(example.title, json)
+            delete schema.$schema
             responses[code] = { schema, description: example.title }
         }
 
